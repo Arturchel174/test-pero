@@ -24,6 +24,8 @@ class OrderType
     private array $arItem = [];
     const NO_PAID_STATUS = 0;
     const PAID_STATUS = 1;
+    private float $bonuses = 0;
+    private float $deposit = 0;
 
     /**
      * @param StorageInterface $storage
@@ -50,6 +52,8 @@ class OrderType
             'updated_at' => $this->updated_at,
             'promocode' => $this->promocode,
             'region_id' => $this->region_id,
+            'discount_bonuses' => $this->bonuses,
+            'discount_deposit' => $this->deposit,
             'delivery_date' => $this->delivery_date,
             'delivery_time' => $this->delivery_time,
         ];

@@ -3,16 +3,17 @@
 namespace common\bitrix24\order\type;
 
 use common\bitrix24\order\storage\StorageInterface;
+use frontend\components\Bx24Handler;
 
 class DealType
 {
-    private $id;
+    private ?int $id;
     private $program_name;
     private $username;
     private $title;
     private $opportunity;
     private $currency;
-    private $contact_id;
+    private ?int $contact_id;
     private $count_days;
     private $delivery_time;
     private $preferred_time;
@@ -28,7 +29,8 @@ class DealType
     private $promocode_string;
     private StorageInterface $storage;
     private array $arItem = [];
-    
+
+    const FIRST_ORDER_TEXT = ' — Первый заказ';
     /**
      * @param StorageInterface $storage
      */
@@ -65,6 +67,24 @@ class DealType
             'promocode_string' => $this->promocode_string,
         ];
     }
+
+    /**
+     * @return mixed
+     */
+    public function getId(): ?int
+    {
+        return $this->id;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getContactId(): ?int
+    {
+        return $this->contact_id;
+    }
+
+
     /**
      * @return mixed
      */

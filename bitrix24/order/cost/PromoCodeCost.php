@@ -10,6 +10,7 @@ class PromoCodeCost implements CalculatorInterface
     private PromoCodeType $promoCodeType;
     private int $count_day;
     private int $program_id;
+    private float $discount = 0;
 
     /**
      * @param PromoCodeType $promoCodeType
@@ -53,8 +54,10 @@ class PromoCodeCost implements CalculatorInterface
         }
 
         if (DiscountHelper::isTypeNumberOrPercent($this->promoCodeType->getTypeDiscount())) {
-            $cost -= $this->promoCodeType->getValueDiscount();
+            $this->discount = $this->promoCodeType->getValueDiscount() ?? 0;
         }
+
+        $cost -= $this->discount;
 
         return $cost;
     }
@@ -62,5 +65,15 @@ class PromoCodeCost implements CalculatorInterface
     public function isListPromoCodePrograms($arPromoResult): bool
     {
         return $arPromoResult["program_id"] === $this->program_id && $arPromoResult["count"] === $this->count_day;
+    }
+
+    public function getDiscountValue(): int
+    {
+        return $this->discount;
+    }
+
+    public function getName(): string
+    {
+        return 'promo_code';
     }
 }

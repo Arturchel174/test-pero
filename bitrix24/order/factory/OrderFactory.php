@@ -2,15 +2,16 @@
 
 namespace common\bitrix24\order\factory;
 
-use common\bitrix24\order\cost\BonusCost;
-use common\bitrix24\order\cost\PromoCodeCost;
-use common\bitrix24\order\cost\ReplacedMealTimeCost;
+use common\bitrix24\exception\DealCreationException;
+use common\bitrix24\exception\DealUpdationException;
+use common\bitrix24\exception\OrderValidationException;
+use common\bitrix24\manager\DealBx24Manager;
+use common\bitrix24\manager\DealManagerInterface;
 use common\bitrix24\order\service\CreateOrderService;
-use common\bitrix24\order\storage\DealOrderStorage;
-use common\bitrix24\order\storage\PostDealStorage;
-use common\bitrix24\order\storage\YiiProgramStorage;
-use common\bitrix24\order\storage\YiiPromoCodeStorage;
-use common\bitrix24\order\storage\YiiUserStorage;
+use common\bitrix24\order\service\deal\DealTypeCreatorInterface;
+use common\bitrix24\order\service\discount\context\DiscountContext;
+use common\bitrix24\order\service\discount\DiscountCalculatorServiceInterface;
+use common\bitrix24\order\service\ration\RationCreatorInterface;
 use common\bitrix24\order\type\DealType;
 use common\bitrix24\order\type\OrderType;
 use common\bitrix24\order\type\PaykeeperType;
@@ -21,316 +22,267 @@ use common\bitrix24\order\type\UserType;
 use common\types\DealBx24;
 use frontend\components\menu\models\GiftMealTime;
 use frontend\components\menu\models\MealTimeReplace;
-use Yii;
+use yii\base\InvalidConfigException;
 use yii\db\StaleObjectException;
 
+/**
+ * Фабрика для создания заказов в системе Bitrix24
+ *
+ * @ method int addDealBx24() Создает новую сделку
+ * @ method void updateDealBx24() Обновляет данные сделки
+ */
 class OrderFactory
 {
-    private $post;
-    private ?DealBx24 $dealBx24 = null;
-    private ?MealTimeReplace $mealTimeReplace = null;
-    private ?GiftMealTime $giftMealTime = null;
+    private DealBx24 $deal;
+    private ?MealTimeReplace $mealReplace;
+    private ?GiftMealTime $giftMeal;
     private CreateOrderService $createOrderService;
     private ProgramType $programType;
     private UserType $userType;
-    private DealType $dealType;
+    private ?DealType $dealType = null;
     private ?PromoCodeType $promoCodeType;
-    private ?OrderType $orderType;
-    private ?PaykeeperType $paykeeperType;
-    private ?array $rations;
+    private ?OrderType $orderType = null;
+    private ?PaykeeperType $paykeeperType = null;
     private RegionType $regionType;
-    /**
-     * @var mixed
-     */
-    private array $region;
+    private DiscountCalculatorServiceInterface $discountCalculator;
+    private RationCreatorInterface $rationCreatorService;
+    private DealTypeCreatorInterface $dealTypeCreator;
+    private DealManagerInterface $dealManager;
+    private OrderTypeFactoryInterface $orderTypeFactory;
+    private PaykeeperTypeFactory $paykeeperFactory;
+
 
     /**
-     * @param $post
+     * @throws \Throwable
+     * @throws \JsonException
      */
-    public function __construct($post, array $region)
+    public function __construct(
+        DealBx24 $deal,
+        RegionType $regionType,
+        DiscountCalculatorServiceInterface $discountCalculator,
+        ProgramType $programType,
+        UserType $userType,
+        ?PromoCodeType $promoCodeType,
+        CreateOrderService $createOrderService,
+        RationCreatorInterface $rationCreatorService,
+        DealTypeCreatorInterface $dealTypeCreator,
+        DealManagerInterface $dealManager,
+        OrderTypeFactoryInterface $orderTypeFactory,
+        PaykeeperTypeFactory $paykeeperFactory,
+        ?MealTimeReplace $mealReplace = null,
+        ?GiftMealTime $giftMeal = null
+    ) {
+        $this->rationCreatorService = $rationCreatorService;
+        $this->deal = $deal;
+        $this->regionType = $regionType;
+        $this->discountCalculator = $discountCalculator;
+        $this->programType = $programType;
+        $this->userType = $userType;
+        $this->promoCodeType = $promoCodeType;
+        $this->createOrderService = $createOrderService;
+        $this->dealTypeCreator = $dealTypeCreator;
+        $this->dealManager = $dealManager;
+        $this->orderTypeFactory = $orderTypeFactory;
+        $this->paykeeperFactory = $paykeeperFactory;
+        $this->mealReplace = $mealReplace;
+        $this->giftMeal = $giftMeal;
+
+        $this->initializeComponents();
+    }
+
+
+    /**
+     * @throws \Throwable
+     * @throws \JsonException
+     */
+    private function initializeComponents(): void
     {
-        $this->post = $post;
-        $this->region = $region;
-        $this->createRegionType();
-        $this->createProgramType();
-        $this->createUserType();
-        $this->createOrderService();
         $this->createRations();
         $this->validationPromoCode();
         $this->discountCalculation();
         $this->createDealType();
-    }
-
-    public function addDealBx24(): int
-    {
         $this->collectingDealBx24();
-
-        $this->dealBx24->id = $this->dealBx24->addDeal();
-
-        if($this->dealBx24->id > 0){
-            return $this->dealBx24->id;
-//            $this->createOrderType();
-//            $this->saveOrder();
-//            $this->createPaykeeperType();
-        }else{
-            throw new \RuntimeException('Не удалось создать сделку!');
-        }
-
     }
 
-    /**
-     * @throws \Throwable
-     * @throws StaleObjectException
-     */
-    public function updateDealBx24()
+    public function getDealHash(): string
     {
-        $this->collectingDealBx24();
-
-        if ($this->dealBx24->id > 0) {
-            $this->createOrderType();
-            $this->saveOrder();
-            $this->createPaykeeperType();
-        } else {
-            throw new \RuntimeException('Не удалось обновить сделку!');
-        }
-    }
-
-    public function validationPromoCode()
-    {
-        $this->createOrderService->validationPromoCode();
-    }
-
-    public function discountCalculation()
-    {
-        if(isset($this->createOrderService, $this->mealTimeReplace->rep_ml_list)){
-            $this->mealTimeReplace->setInfoByPrices();
-            $this->createOrderService->discountCalculation(
-                new ReplacedMealTimeCost($this->mealTimeReplace->rep_ml_list, $this->mealTimeReplace->getInfoByPrices())
-            );
-        }
-
-        // Если есть валидный промокод - используем только его
-        if ($this->promoCodeType !== null && $this->promoCodeType->isFlagValidate()) {
-            $this->createOrderService->discountCalculation(
-                new PromoCodeCost(
-                    $this->promoCodeType,
-                    $this->programType->getCountDay(),
-                    $this->programType->getProgramId()
-                )
-            );
-        }
-        // Если промокода нет - используем бонусы
-        else {
-            //получить бонус $this->dealBx24->bonus
-            //проверить в б24
-            $this->createOrderService->discountCalculation(
-                new BonusCost($this->userType->getBalance())
-            );
-        }
-    }
-
-    public function getUserName()
-    {
-        return $this->dealBx24->username;
-    }
-
-    public function getCost(): float
-    {
-        return $this->createOrderService->getCost();
+        $array = $this->deal->assignValuesForBitrixAttributes($this->deal->attributes);
+        unset($array['ID']);
+        $string = serialize($array);
+        return md5($string);
     }
 
     public function getRations(): ?array
     {
-        return $this->rations;
+        return $this->rationCreatorService->getRations();
+    }
+
+    public function getInfoByPrices(): ?array
+    {
+        return $this->mealReplace->getInfoByPrices();
+    }
+
+    public function getDeal(): DealBx24
+    {
+        return $this->deal;
+    }
+
+    public function addDealBx24($onDaysWorkFlow = true): int
+    {
+        $this->ensureDealExists();
+
+        if ($this->deal->id <= 0) {
+            throw new DealCreationException('Не удалось создать сделку!');
+        }
+
+        $this->initDaysWorkFlow($onDaysWorkFlow);
+
+        return $this->deal->id;
+    }
+
+    public function updateDealBx24($onDaysWorkFlow = true): bool
+    {
+        if (!$this->dealType->getId() && $this->addDealBx24($onDaysWorkFlow) > 0) {
+            return true;
+        }
+
+        if ($this->dealManager->updateDeal($this->deal) !== true) {
+            throw new DealUpdationException('Не удалось обновить сделку!');
+        }
+
+        $this->initDaysWorkFlow($onDaysWorkFlow);
+
+        return true;
+    }
+
+    /**
+     * @throws StaleObjectException
+     * @throws \Throwable
+     */
+    public function createOrder(): void
+    {
+        if ($this->deal->id <= 0) {
+            throw new DealUpdationException('Не удалось создать заказ!');
+        }
+
+        $this->createOrderType();
+        $this->saveOrder();
+        $this->createPaykeeperType();
+    }
+    private function initDaysWorkFlow($onDaysWorkFlow = true): void
+    {
+        if($onDaysWorkFlow && $this->deal->id > 0){
+            try {
+                $this->dealManager->initDaysWorkFlow($this->deal);
+            }catch (InvalidConfigException $e){
+                throw new DealUpdationException('Не удалось настроить график доставки!');
+            }
+        }
+    }
+    private function ensureDealExists(): void {
+        if (!$this->dealType->getId()) {
+            $this->deal->id = $this->dealManager->createDeal($this->deal);
+        }
     }
 
     public function getUrlPaykeeper(): ?string
     {
-        if($this->paykeeperType !== null){
-            return $this->paykeeperType->create();
-        }
-
-        return null;
-    }
-
-    private function createProgramType()
-    {
-        $this->initModels();
-
-        $this->programType = new ProgramType(
-            new YiiProgramStorage($this->dealBx24->program_id, $this->dealBx24->count_days)
-        );
-    }
-
-    private function createUserType()
-    {
-        $this->initModels();
-
-        $this->userType = new UserType(
-            new YiiUserStorage($this->dealBx24->username)
-        );
-    }
-    private function createPromoCodeType()
-    {
-        $this->initModels();
-
-        $this->promoCodeType = !empty($this->dealBx24->promo_code)
-            ? new PromoCodeType(new YiiPromoCodeStorage($this->dealBx24->promo_code))
+        return $this->paykeeperType !== null
+            ? $this->paykeeperType->create()
             : null;
     }
 
-    private function createOrderService()
+    private function createDealType(): void
     {
-        if(isset($this->programType, $this->userType)){
-            $this->createOrderService = new CreateOrderService($this->programType, $this->userType);
-
-            if($this->userType->isNotGuest()){
-                $this->createPromoCodeType();
-            }
-
-            if($this->promoCodeType !== null) {
-                $this->createOrderService->setPromoCodeType($this->promoCodeType);
-            }
-        }
-    }
-
-    private function createDealType()
-    {
-        if(isset($this->programType, $this->userType)){
-            $this->dealType = new DealType(
-                new PostDealStorage($this->dealBx24, $this->programType, $this->userType, $this->promoCodeType)
-            );
-        }
-    }
-
-    private function loadModel($model, $formName = null, $attributeNames = null, $clearErrors = true)
-    {
-        if (!$model->load($this->post, $formName)) {
-            return null;
-        }
-
-        if (!$model->validate($attributeNames)) {
-            throw new \RuntimeException(
-                implode(', ', \yii\helpers\ArrayHelper::getColumn($model->errors, 0))
-            );
-        }
-
-        return $model;
-    }
-
-    private function initModels()
-    {
-        if($this->dealBx24 === null){
-            $this->dealBx24 = $this->loadModel(
-                new DealBx24(['scenario' => DealBx24::ORDER_PICKING]),
-                'DealBx24'
-            );
-        }
-
-        if($this->mealTimeReplace === null){
-            $this->mealTimeReplace = $this->loadModel(
-                new MealTimeReplace(),
-                'MealTimeReplace'
-            );
-        }
-
-        if($this->giftMealTime === null){
-            $this->giftMealTime = $this->loadModel(
-                new GiftMealTime(),
-                'GiftMealTime',
-                'gift_ml_ids'
-            );
-        }
-    }
-
-    private function createRegionType()
-    {
-        $this->regionType = new RegionType(
-            $this->region['currentRegionId'],
-            $this->region['status_category'],
-            $this->region['deal_status_new'],
-            $this->region['deal_city_id']
+        $this->dealType = $this->dealTypeCreator->create(
+            $this->deal,
+            $this->programType,
+            $this->userType,
+            $this->promoCodeType
         );
-    }
-
-    private function createRations()
-    {
-        $this->initModels();
-
-        try {
-            $this->rations = $this->mealTimeReplace->getRations(
-                $this->dealBx24->count_days,
-                $this->dealBx24->program_id,
-                $this->dealBx24->menu_id,
-                $this->dealBx24->delivery_date
-            );
-            if (isset($this->rations)) {
-                $this->mergeDateGiftWithRations();
-                $this->dealBx24->setRations(json_encode($this->rations, JSON_THROW_ON_ERROR));
-            }
-        } catch (\Throwable $e) {
-            throw new \RuntimeException($e->getMessage());
-
-        }
-    }
-
-    /**
-     * @throws \JsonException
-     */
-    private function mergeDateGiftWithRations()
-    {
-        if(isset($this->giftMealTime)){
-            $this->giftMealTime->mergeDateGiftWithRations($this->rations);
-        }
-    }
-
-    private function createOrderType()
-    {
-        $this->orderType = new OrderType(
-            new DealOrderStorage($this->dealBx24, $this->userType->getUserId(), $this->regionType->getCurrentRegionId())
-        );
-    }
-
-    private function saveOrder()
-    {
-        if($this->orderType !== null){
-            $this->orderType->save();
-        }
     }
 
     /**
      * @throws \Throwable
-     * @throws StaleObjectException
+     * @throws \JsonException
      */
-    private function createPaykeeperType()
+    private function createRations(): void
     {
-        $this->paykeeperType = new PaykeeperType(
-            $this->userType->getUsername(),
-            "s.fdsf01@mail.ru",
-            $this->dealType->getProgramName(),
-            $this->dealType->getUsername(),
-            $this->dealType->getOpportunity(),
-            $this->orderType->getDealId(),
-            Yii::$app->paykeeper
+        $this->rationCreatorService->create($this->deal, $this->mealReplace, $this->giftMeal);
+    }
+
+    private function validationPromoCode(): void
+    {
+        $this->createOrderService->validationPromoCode();
+    }
+
+    private function discountCalculation(): void
+    {
+        $this->deal->opportunity = $this->discountCalculator->calculate(
+            new DiscountContext(
+                $this->programType,
+                $this->userType,
+                $this->mealReplace,
+                $this->promoCodeType,
+                $this->deal->bonus
+            )
         );
     }
 
-    private function collectingDealBx24()
+    private function collectingDealBx24(): void
     {
-        if(isset($this->dealType)){
-            $this->dealType->createTitle();
-            $this->dealType->setOpportunity($this->getCost());
-            $this->dealType->setCategoryId($this->regionType->getStatusCategory() ?? $this->dealBx24::STATUS_CATEGORY_CHEL);
-            $this->dealType->setStageId($this->regionType->getDealStatusNew() ?? $this->dealBx24::STATUS_NEW);
-            $this->dealType->setCityId($this->regionType->getDealCityId() ?? 730);
-            $this->dealType->setPayInfo($this->dealBx24::ORDER_NO_PAID_VALUE);
+        if ($this->dealType === null) {
+            throw new \RuntimeException('DealType not initialized');
         }
 
-        if($this->userType->isNewUser()){
-            $this->dealType->addTextForTitle(' — Первый заказ');
+        $contactId = $this->dealType->getContactId();
+
+        if ($contactId !== null) {
+            $existingDeals = $this->dealManager->findExistingDeals($contactId);
         }
 
-        $this->dealBx24->setAttributes($this->dealType->getProperty());
+        if (!empty($existingDeals)) {
+            $this->dealType->setId(end($existingDeals)['ID']);
+        }
+
+        $this->dealTypeCreator->configure(
+            $this->dealType,
+            $this->regionType,
+            $this->userType
+        );
+
+        $this->deal->setAttributes($this->dealType->getProperty());
     }
 
+    private function createOrderType(): void
+    {
+        $this->orderType = $this->orderTypeFactory->create(
+            $this->deal,
+            $this->userType,
+            $this->regionType,
+            $this->discountCalculator->getDiscountValues()
+        );
+    }
+
+    private function saveOrder(): void
+    {
+        if ($this->orderType !== null) {
+            $this->orderType->save();
+        } else {
+            throw new OrderValidationException('Нет данных для сохранения сделки!');
+        }
+    }
+
+    /**
+     * @throws StaleObjectException
+     * @throws \Throwable
+     */
+    private function createPaykeeperType(): void
+    {
+        $this->paykeeperType = $this->paykeeperFactory->create(
+            $this->orderType,
+            $this->dealType,
+            $this->userType
+        );
+    }
 }

@@ -10,21 +10,29 @@ class DealOrderStorage extends YiiOrderStorage implements StorageInterface
 {
     private DealBx24 $dealBx24;
     private ?int $region_id;
+    /**
+     * @var mixed
+     */
+    private float $bonuses = 0;
+    private float $deposit = 0;
 
     /**
      * @param DealBx24 $dealBx24
      */
-    public function __construct(DealBx24 $dealBx24, int $user_id, int $region_id)
+    public function __construct(DealBx24 $dealBx24, int $user_id, int $region_id, array $discountValues = [])
     {
         $this->dealBx24 = $dealBx24;
         $this->user_id = $user_id;
         $this->region_id = $region_id;
 
+        if(!empty($discountValues)){
+            $this->setDiscountValues($discountValues);
+        }
+
         if($this->dealBx24->id <= 0){
             throw new \RuntimeException('Сделка не была создана в б24!');
         }
     }
-
 
     public function load(): array
     {
@@ -40,6 +48,8 @@ class DealOrderStorage extends YiiOrderStorage implements StorageInterface
                 'delivery_time' => $this->dealBx24::DELIVERY_TIME[$this->dealBx24->delivery_time],
                 'status' => OrderType::NO_PAID_STATUS,
                 'region_id' => $this->region_id,
+                'bonuses' => $this->bonuses,
+                'deposit' => $this->deposit,
                 'created_at' => time(),
                 'updated_at' => time()
             ];
@@ -48,4 +58,12 @@ class DealOrderStorage extends YiiOrderStorage implements StorageInterface
         }
     }
 
+    private function setDiscountValues($discountValues)
+    {
+        foreach ($discountValues as $discount => $value){
+            if(isset($this->$discount)){
+                $this->$discount = $value;
+            }
+        }
+    }
 }

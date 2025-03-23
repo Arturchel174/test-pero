@@ -18,33 +18,18 @@ use common\bitrix24\order\type\UserType;
 
 class CreateOrderService
 {
-    private ?ProgramType $programType;
-    private ?UserType $userType;
-    private ?PromoCodeType $promoCodeType;
-    private float $cost;
+    private UserType $userType;
+    private ?PromoCodeType $promoCodeType = null;
 
-    public function __construct(ProgramType $programType, UserType $userType, PromoCodeType $promoCodeType = null)
+    public function __construct(UserType $userType, PromoCodeType $promoCodeType = null)
     {
-        $this->programType = $programType;
         $this->userType = $userType;
 
         if($this->userType->isNotGuest()){
             $this->promoCodeType = $promoCodeType;
         }
-
-        if($this->programType->getPrice() > 0){
-            $this->cost = $this->programType->getPrice();
-        }
     }
 
-    public function discountCalculation(CalculatorInterface $calculator)
-    {
-        if ($this->cost <= 0) {
-            throw new \RuntimeException("Некорректная стоимость({$this->cost}) заказа");
-        }
-
-        $this->cost = $calculator->getCost($this->cost);
-    }
     public function validationPromoCode()
     {
         if($this->promoCodeType !== null && $this->promoCodeType->isExitPromoCode()){
@@ -71,10 +56,5 @@ class CreateOrderService
     public function setPromoCodeType(PromoCodeType $promoCodeType)
     {
         $this->promoCodeType = $promoCodeType;
-    }
-
-    public function getCost(): float
-    {
-        return $this->cost;
     }
 }

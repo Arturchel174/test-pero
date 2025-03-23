@@ -11,4 +11,6 @@ interface CalculatorInterface
      * @return float
      */
     public function  getCost(float $cost): float;
+    public function getDiscountValue();
+    public function getName(): string;
 }

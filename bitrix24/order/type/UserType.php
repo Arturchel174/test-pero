@@ -9,10 +9,12 @@ use frontend\components\Bx24Handler;
 class UserType
 {
     private string $username;
-    private int $user_id;
+    private ?string $first_name;
+    private ?int $user_id;
     private ?int $bx_id;
     private int $secure_status;
     private int $balance;
+    private int $deposit;
     private StorageInterface $storage;
     private array $arItem = [];
     private ?string $phoneMask = null;
@@ -38,7 +40,14 @@ class UserType
         if($this->isUserWithoutBxId()){
             $this->registerUserBx24();
             $this->updateUserInfo();
+        }elseif($this->isExitBxId()){
+            $this->updateInfoBalance();
         }
+    }
+
+    public function getFirstName(): ?string
+    {
+        return $this->first_name;
     }
 
     public function getUsername(): string
@@ -46,7 +55,7 @@ class UserType
         return $this->username;
     }
 
-    public function getUserId(): int
+    public function getUserId(): ?int
     {
         return $this->user_id;
     }
@@ -69,6 +78,11 @@ class UserType
     public function getBalance(): int
     {
         return $this->balance;
+    }
+
+    public function getDeposit(): int
+    {
+        return $this->deposit;
     }
 
     public function isNotGuest(): bool
@@ -94,10 +108,24 @@ class UserType
 
         return $this->phoneMask;
     }
+    private function initUserBitrixHelper(): UserBitrixHelper
+    {
+        return new UserBitrixHelper(new Bx24Handler('+'.$this->username));
+    }
+
+    private function updateInfoBalance()
+    {
+        $userBitrixHelper = $this->initUserBitrixHelper();
+
+        $userBitrixHelper->updateInfoBalanceByBitrix24($this->bx_id);
+
+        $this->balance = $userBitrixHelper->getBalanceBonus();
+        $this->deposit = $userBitrixHelper->getBalanceDeposit();
+    }
 
     private function registerUserBx24()
     {
-        $userBitrixHelper = new UserBitrixHelper(new Bx24Handler('+'.$this->username));
+        $userBitrixHelper = $this->initUserBitrixHelper();
 
         if (!$userBitrixHelper->registerUserBx24()) {
             throw new \RuntimeException('Не удалось получить данные для пользователя из б24.');
@@ -105,6 +133,8 @@ class UserType
 
         $this->bx_id = $userBitrixHelper->getBxId();
         $this->secure_status = $userBitrixHelper->getSecureStatus();
+        $this->balance = $userBitrixHelper->getBalanceBonus();
+        $this->deposit = $userBitrixHelper->getBalanceDeposit();
     }
 
     private function updateUserInfo()
@@ -116,7 +146,8 @@ class UserType
                     'user_id' => $this->user_id,
                     'bx_id' => $this->bx_id,
                     'secure_status' => $this->secure_status,
-                    'balance' => $this->balance
+                    'balance' => $this->balance,
+                    'deposit' => $this->deposit,
                 ]
             );
         }
@@ -125,6 +156,11 @@ class UserType
     private function isUserWithoutBxId(): bool
     {
         return (isset($this->user_id) && !$this->isGuest) && !isset($this->bx_id);
+    }
+
+    private function isExitBxId(): bool
+    {
+        return (isset($this->user_id) && !$this->isGuest) && isset($this->bx_id);
     }
 
     protected function loadItem()
@@ -138,13 +174,13 @@ class UserType
     {
         if (!empty($this->arItem)) {
             $this->username = $this->arItem['username'];
-            $this->user_id = $this->arItem['user_id'];
-            $this->bx_id = $this->arItem['bx_id'];
-            $this->secure_status = $this->arItem['secure_status'];
-            $this->balance = $this->arItem['balance'];
-        }else{
-            $this->isGuest = true;
-            $this->secure_status = self::TYPE_SECURE_ALL_USERS;
+            $this->first_name = $this->arItem['first_name'];
+            $this->isGuest = $this->arItem['isGuest'];
+            $this->user_id = $this->arItem['user_id'] ?? null;
+            $this->bx_id = $this->arItem['bx_id'] ?? null;
+            $this->secure_status = $this->arItem['secure_status'] ?? self::TYPE_SECURE_NEW_USERS;
+            $this->balance = $this->arItem['balance'] ?? 0;
+            $this->deposit = $this->arItem['deposit'] ?? 0;
         }
     }
 }

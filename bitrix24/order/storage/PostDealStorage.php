@@ -28,6 +28,7 @@ class PostDealStorage implements StorageInterface
 
     public function load(): array
     {
+        $this->dealBx24->id = $this->dealBx24->id > 0 ? $this->dealBx24->id : null;
         $this->dealBx24->program_name = "{$this->programType->getCalories()} ккал {$this->programType->getProgramName()}";
         $this->dealBx24->username = $this->userType->getPhoneWithMask();
         $this->dealBx24->currency = $this->programType::CURRENCY_ID;

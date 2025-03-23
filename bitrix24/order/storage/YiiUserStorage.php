@@ -10,30 +10,44 @@ use yii\db\Exception;
 class YiiUserStorage implements StorageInterface
 {
     private string $username;
+    private bool $isGuest;
 
     /**
      * @param string $username
      */
-    public function __construct(string $username)
+    public function __construct(string $username, bool $isGuest = true)
     {
         $this->username = preg_replace('![^0-9]+!', '', $username);
+        $this->isGuest = $isGuest;
     }
 
     public function load(): array
     {
         $userInfo = UserInfo::findByUserPhone($this->username);
 
-        if(isset($userInfo)){
-            return [
+        $arItem = [];
+
+        if($this->isGuest){
+            $arItem = [
                 'username' => $this->username,
-                'user_id' => $userInfo->user_id,
-                'bx_id' => $userInfo->bx_id,
-                'secure_status' => $userInfo->user->secure_status,
-                'balance' => $userInfo->balance,
+                'isGuest' => $this->isGuest,
             ];
-        }else{
-            throw new \RuntimeException('Пользователь не найден!');
         }
+
+        if(isset($userInfo)){
+            $arItem = [
+                'username' => $this->username,
+                'first_name' => $userInfo->first_name,
+                'isGuest' => false,
+                'user_id' => $userInfo->user_id ?? null,
+                'bx_id' => $userInfo->bx_id ?? null,
+                'secure_status' => $userInfo->user->secure_status ?? null,
+                'balance' => $userInfo->balance ?? 0,
+                'deposit' => $userInfo->deposit ?? 0,
+            ];
+        }
+
+        return $arItem;
     }
 
     /**
@@ -47,6 +61,7 @@ class YiiUserStorage implements StorageInterface
         $userInfo = UserInfo::findOne(['user_id' => $user->id]);
         $userInfo->bx_id = $item["bx_id"];
         $userInfo->balance = $item["balance"];
+        $userInfo->deposit = $item["deposit"];
 
         if(!($user->save() && $userInfo->save())){
             throw new \RuntimeException('Не удалось обновить данные для пользователя!');
